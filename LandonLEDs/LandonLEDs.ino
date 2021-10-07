@@ -1,11 +1,6 @@
 #include <FastLED.h>
 
-/**
- * TODO:
- *    sliders
- *    hardware
 
-**/
 
 #define NUM_LEDS 900
 #define LEDPIN 56
@@ -16,17 +11,19 @@
 #define NUM_BTN_ROWS (4)
 #define NUM_COLORS (3)
 
-#define MAX_DEBOUNCE (3)
+#define MAX_DEBOUNCE (2)
 
-#define BUFFER_SIZE 16
+#define BUFFER_SIZE 8
 
-#define SLIDER_R A5
-#define SLIDER_G A6
-#define SLIDER_B A7
+#define SLIDER_R A12
+#define SLIDER_G A9
+#define SLIDER_B A6
 
 #define SCAN_DELTA 1
-#define STRIP_REPS_PER_SCAN 5
-#define RNBW_REPS_PER_STRIP 8
+#define SCAN_REPS_PER_STRIP_UPDATE 4
+
+#define NUM_RAINBOWS 4
+#define RAINBOW14DELTA ((256 * NUM_RAINBOWS / NUM_LEDS) == 0 ? 1 : (256 * NUM_RAINBOWS / NUM_LEDS))
 
 
 CRGB leds[NUM_LEDS];
@@ -133,22 +130,20 @@ void scanButtons(){
   uint8_t val;
   uint8_t i, j;
 
-    //run
-    digitalWrite(btnselpins[current], LOW);
-    digitalWrite(ledselpins[current], LOW);
+  //run
+  digitalWrite(btnselpins[current], LOW);
+  digitalWrite(ledselpins[current], LOW);
 
-    for(i = 0; i < NUM_LED_ROWS; i++)
-    {
+  
+  for(i = 0; i < NUM_LED_ROWS; i++)
+  {
+    if((buttonSelect/4 == current) && (buttonSelect%4 == i)){
       analogWrite(colorpins[i][0], ButtonLEDs[current][i].r);
       analogWrite(colorpins[i][1], ButtonLEDs[current][i].g);
       analogWrite(colorpins[i][2], ButtonLEDs[current][i].b);
-//        uint8_t val = (LED_outputs[current][i] & 0x03);
-//
-//        if(val)
-//        {
-//            digitalWrite(colorpins[i][val-1], HIGH);
-//        }
+    }
   }
+  
 
 
   delay(2);
@@ -166,12 +161,6 @@ void scanButtons(){
         if( debounce_count[current][j] == MAX_DEBOUNCE )
         {
           buttonSelect=(current * NUM_BTN_ROWS) + j;
-          //Serial.println("Button press: " + String(buttonSelect));
-          //Serial.println("\tR: " + String(ButtonLEDs[current][j].r) + "\tG: " + String(ButtonLEDs[current][j].g) + "\tB: " + String(ButtonLEDs[current][j].b));
-//          Serial.print("Key Down ");
-//          Serial.println((current * NUM_BTN_ROWS) + j);
-
-//          LED_outputs[current][j]++;
         }
       }
     }
@@ -218,6 +207,15 @@ void updateCustomColor(){
   sliderReads[1][bufferPointer]=analogRead(SLIDER_G);
   sliderReads[2][bufferPointer]=analogRead(SLIDER_B);
 
+//  //debug
+//  Serial.print("RAW R: " +String(analogRead(SLIDER_R)));
+//  Serial.print("\tRAW G: " +String(analogRead(SLIDER_G)));
+//  Serial.println("\tRAW B: " +String(analogRead(SLIDER_B)));
+//  //end debug
+
+  //for some reason my blue analog pin or something on blue is super noisey
+  if(sliderReads[2][bufferPointer] <= 100) sliderReads[2][bufferPointer]=0;
+  
   bufferPointer++;
   if(bufferPointer>=BUFFER_SIZE) bufferPointer=0;
   
@@ -234,13 +232,19 @@ void updateCustomColor(){
   gFinal=map(gSum,0,1023,0,255);
   bFinal=map(bSum,0,1023,0,255);
   
+//  //debug
+//  Serial.println("Final R: " +String(rFinal));
+//  Serial.println("Final G: " +String(gFinal));
+//  Serial.println("Final B: " +String(bFinal));
+//  delay(300);
+//  //end debug
   ButtonLEDs[3][1]=CRGB(rFinal,gFinal,bFinal);
   
 }
 
 void rotateRainbow() {
   CRGB rnbw[1];
-  hue++;
+  hue+=RAINBOW14DELTA;
   fill_rainbow(rnbw,1,hue,2);
   //bad fix but it works
   if(rnbw[0].r==160 && rnbw[0].g==0 && rnbw[0].b==0){
@@ -256,24 +260,35 @@ void progressLEDStrip() {
   nextColor.r = nextColor.r/2;
   nextColor.g = nextColor.g/2;
   nextColor.b = nextColor.b/2;
-  if(buttonSelect==13 || buttonSelect==15){
+  if(buttonSelect==15){
     for(int i=0; i<NUM_LEDS; i++){
       leds[i] = nextColor;
     }
   }
   else {
-    for(int i=NUM_LEDS-1; i>0; i--){
-      leds[i] = leds[i-1];
+    for(int i=NUM_LEDS-1; i>2; i-=2){
+      leds[i] = leds[i-2];
+      leds[i-1] = leds[i-3];
     }
+    leds[1] = nextColor;
     leds[0] = nextColor;
+//    for(int i=NUM_LEDS-1; i>0; i--){
+//      leds[i] = leds[i-1];
+//    }
+//    leds[0] = nextColor;
   }
+  //debug
+//  Serial.print("Final R: " +String(nextColor.r));
+//  Serial.print("\tFinal G: " +String(nextColor.g));
+//  Serial.println("\tFinal B: " +String(nextColor.b));
+  //end debug
   FastLED.show();
 }
 
 
 
 void setup() {
-  Serial.begin(9600);
+  //Serial.begin(9600);
   FastLED.addLeds<NEOPIXEL, LEDPIN>(leds,NUM_LEDS);
   
   for(int i=0; i<NUM_LEDS; i++){
@@ -291,15 +306,12 @@ void loop() {
     nextLoop = millis()+SCAN_DELTA;
     scanButtons();
     
-    if(stripCount++ >= STRIP_REPS_PER_SCAN){
+    if(stripCount++ >= SCAN_REPS_PER_STRIP_UPDATE){
       stripCount=0;
       progressLEDStrip();
+      rotateRainbow();
+      updateCustomColor();
       
-      if(rnbwCount++ >= RNBW_REPS_PER_STRIP){
-        rnbwCount = 0;
-        rotateRainbow();
-        updateCustomColor();
-      }
     }
   }
 }
